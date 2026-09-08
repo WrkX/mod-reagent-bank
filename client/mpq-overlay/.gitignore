@@ -1,0 +1,3 @@
+# This file is generated only in an explicit release staging directory by
+# ../prepare-mpq-overlay.sh. Never commit a Turtle-client-derived baseline.
+/Interface/FrameXML/CharacterFrame.xml

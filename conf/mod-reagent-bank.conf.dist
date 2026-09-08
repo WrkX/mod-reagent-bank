@@ -1,0 +1,47 @@
+[worldserver]
+
+###############################################
+# mod-reagent-bank
+###############################################
+#
+# Virtual Material Storage offered by normal bankers. Balances live in the
+# character table `custom_reagent_bank` and are not consumed by recipes,
+# vendors, mail, or the auction house — the player withdraws first.
+#
+# Prerequisites:
+#   - Build with modules enabled (`-DMODULES=static` recommended)
+#   - Keep ALLOW_TURTLE_ADDONS=ON (this fork's default)
+#   - Keep AddonChannel = 1 in the world configuration
+#   - Permit this migration with
+#       Database.AutoUpdate.AllowedModules = "all"
+#     or an allowlist containing `mod-reagent-bank`
+#
+#     ReagentBank.Enable
+#         Description: Master switch. When 0, bankers do not offer Material
+#                      Storage, an already-open session is closed, and stored
+#                      rows are left untouched.
+#         Default:     1
+
+ReagentBank.Enable = 1
+
+#     ReagentBank.DepositAllEnable
+#         Description: Allow the DEPOSIT_ALL command. Single-stack deposit is
+#                      unaffected.
+#         Default:     1
+
+ReagentBank.DepositAllEnable = 1
+
+#     ReagentBank.MaxAmountPerItem
+#         Description: Per-character ceiling for a single item entry. Must be a
+#                      strict decimal value in 1..4294967295; an invalid value
+#                      is logged and falls back to 1000000.
+#         Default:     1000000
+
+ReagentBank.MaxAmountPerItem = 1000000
+
+#     ReagentBank.Debug
+#         Description: Extra protocol and mutation logs (player GUID + request
+#                      ID). Keep off in production.
+#         Default:     0
+
+ReagentBank.Debug = 0

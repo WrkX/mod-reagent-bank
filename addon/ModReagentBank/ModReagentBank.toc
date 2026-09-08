@@ -1,0 +1,8 @@
+## Interface: 1800
+## Title: ModReagentBank
+## Notes: Material Storage for the Tortoise/Turtle 1.12 core
+## Author: WoWGreymane / Tortoise port contributors
+## Version: 1.0-turtle
+## SavedVariables: ModReagentBankDB
+
+ModReagentBank.lua

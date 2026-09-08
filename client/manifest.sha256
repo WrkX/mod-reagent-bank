@@ -1,0 +1,32 @@
+# mod-reagent-bank MPQ overlay manifest
+#
+# Hashes are UNSET until packaging is run against the recorded client baseline:
+#   Turtle client 1.18.1.7272 + 2026-04-12 hotfix set
+#
+# Format: <SHA-256 hex>  <path>
+# Placeholder token UNSET means packaging MUST NOT release until replaced.
+#
+# Packaging MUST fail if:
+#   - any line still contains UNSET;
+#   - extracted baseline CharacterFrame.xml does not match CharacterFrame.xml.original; or
+#   - archive listing or file hashes do not match this manifest.
+# The packaging script also requires --baseline-sha256 and rejects mismatches
+# between that explicit value and CharacterFrame.xml.original.
+
+# Baseline CharacterFrame.xml (before loader line)
+# TODO: populate after first extract from 1.18.1.7272 + 2026-04-12 hotfix set
+UNSET  CharacterFrame.xml.original
+
+# Patched CharacterFrame.xml (baseline + <Script file="ModReagentBank.lua"/>)
+# TODO: populate after applying the one-line loader patch
+UNSET  CharacterFrame.xml.patched
+
+# Overlay files (paths relative to mpq-overlay/)
+UNSET  Interface/FrameXML/ModReagentBank.lua
+# marble.blp is an explicit external packaging input; pin its exact source hash.
+UNSET  Interface/FrameXML/ModReagentBank/textures/marble.blp
+UNSET  Interface/FrameXML/CharacterFrame.xml
+
+# Final assembled MPQ (dev artifact name; production may differ)
+# TODO: populate after MPQ build and listing inspection
+UNSET  mod-reagent-bank-dev.mpq
