@@ -58,7 +58,7 @@ SET @sql := (
         AND TABLE_NAME = 'custom_reagent_bank'
         AND COLUMN_NAME = 'item_subclass') = 0,
     'ALTER TABLE `custom_reagent_bank` ADD COLUMN `item_subclass` INT SIGNED NOT NULL DEFAULT 0 AFTER `item_entry`',
-    'SELECT 1'
+    'SET @reagent_bank_noop := 1'
   )
 );
 PREPARE stmt FROM @sql;
@@ -100,7 +100,7 @@ SET @sql := (
         AND TABLE_NAME = 'custom_reagent_bank'
         AND COLUMN_NAME = 'revision') = 0,
     'ALTER TABLE `custom_reagent_bank` ADD COLUMN `revision` INT UNSIGNED NOT NULL DEFAULT 0 AFTER `amount`',
-    'SELECT 1'
+    'SET @reagent_bank_noop := 1'
   )
 );
 PREPARE stmt FROM @sql;
@@ -122,7 +122,7 @@ SET @sql := (
   SELECT IF(
     @legacy_column_missing = 1,
     'ALTER TABLE `custom_reagent_bank` ADD COLUMN `legacy` TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER `revision`',
-    'SELECT 1'
+    'SET @reagent_bank_noop := 1'
   )
 );
 PREPARE stmt FROM @sql;
@@ -133,7 +133,7 @@ SET @sql := (
   SELECT IF(
     @legacy_column_missing = 1,
     'UPDATE `custom_reagent_bank` SET `legacy` = 1 WHERE `legacy` <> 1',
-    'SELECT 1'
+    'SET @reagent_bank_noop := 1'
   )
 );
 PREPARE stmt FROM @sql;
@@ -148,7 +148,7 @@ SET @sql := (
         AND TABLE_NAME = 'custom_reagent_bank'
         AND COLUMN_NAME = 'mutation_guard') = 0,
     'ALTER TABLE `custom_reagent_bank` ADD COLUMN `mutation_guard` TINYINT UNSIGNED NOT NULL DEFAULT 1 AFTER `legacy`',
-    'SELECT 1'
+    'SET @reagent_bank_noop := 1'
   )
 );
 PREPARE stmt FROM @sql;
@@ -175,7 +175,7 @@ SET @sql := (
         AND TABLE_NAME = 'custom_reagent_bank'
         AND CONSTRAINT_NAME = 'fk_reagent_bank_mutation_guard') = 0,
     'ALTER TABLE `custom_reagent_bank` ADD CONSTRAINT `fk_reagent_bank_mutation_guard` FOREIGN KEY (`mutation_guard`) REFERENCES `custom_reagent_bank_mutation_guard` (`guard`)',
-    'SELECT 1'
+    'SET @reagent_bank_noop := 1'
   )
 );
 PREPARE stmt FROM @sql;
@@ -189,7 +189,7 @@ SET @sql := (
         AND TABLE_NAME = 'custom_reagent_bank'
         AND INDEX_NAME = 'idx_item_entry') = 0,
     'ALTER TABLE `custom_reagent_bank` ADD KEY `idx_item_entry` (`item_entry`)',
-    'SELECT 1'
+    'SET @reagent_bank_noop := 1'
   )
 );
 PREPARE stmt FROM @sql;
