@@ -178,6 +178,14 @@ TEST(ReagentBankProtocolTest, ParseC2SQuery)
     EXPECT_EQ(msg.requestId, 42u);
 }
 
+TEST(ReagentBankProtocolTest, ParseC2SPurchase)
+{
+    C2SMessage const msg = ReagentBank::ParseC2S("RBANK\t1\tPURCHASE\t42");
+    EXPECT_TRUE(msg.valid);
+    EXPECT_EQ(msg.command, Command::Purchase);
+    EXPECT_EQ(msg.requestId, 42u);
+}
+
 TEST(ReagentBankProtocolTest, ParseC2SDeposit)
 {
     C2SMessage const msg = ReagentBank::ParseC2S("RBANK\t1\tDEPOSIT\t8\t0\t16");

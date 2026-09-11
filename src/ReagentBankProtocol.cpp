@@ -173,7 +173,12 @@ namespace ReagentBank
 
         std::string const& name = fields[2];
         std::size_t expected = 0;
-        if (name == "QUERY")
+        if (name == "PURCHASE")
+        {
+            msg.command = Command::Purchase;
+            expected = 4;
+        }
+        else if (name == "QUERY")
         {
             msg.command = Command::Query;
             expected = 4;

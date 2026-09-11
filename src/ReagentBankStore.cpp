@@ -54,7 +54,11 @@ namespace ReagentBank
 
         // PExecute/Execute only means that a request entered this core's
         // transaction queue; it does not expose affected rows. A stale existing
-        // row is failed by writing mutation_guard=0 (no InnoDB parent). A
+        // row is failed by writing mutation_guard=0 (no InnoDB parent). Once
+        // that guard expression has checked the old row, the remaining SET
+        // expressions must be unconditional: MySQL evaluates assignments from
+        // left to right, so repeating the old-row predicate after changing
+        // amount would make a valid mutation skip its revision increment. A
         // missing row is a successful 0-row UPDATE in MySQL, so a second
         // statement INSERT 1 into the parent fails on duplicate key unless the
         // expected post-state exists. Neither path writes NULL or depends on
@@ -125,17 +129,16 @@ namespace ReagentBank
         void AbortUnsavedAfterMutation(Player& player, char const* operation)
         {
             uint32 const guid = player.GetGUIDLow();
-            sLog.outError("ReagentBank: %s failed after mutating player %u; unloading without save to preserve the last committed state",
+            sLog.outError("ReagentBank: %s failed after mutating player %u; scheduling no-save logout to preserve the last committed state",
                 operation, guid);
 
-            // This is the same safe no-save logout sequence ObjectAccessor uses
-            // when it must evict a player. Do not merely kick: disconnect
-            // handling saves the in-memory item queue before logout.
+            // LogoutPlayer destroys Player/MasterPlayer. Calling it from the
+            // addon chat hook leaves HandleMessagechatOpcode using freed/null
+            // state after this callback returns. Defer teardown until the
+            // session's normal post-packet logout boundary. Do not merely kick:
+            // disconnect handling saves the rolled-back in-memory item queue.
             if (WorldSession* session = player.GetSession())
-            {
-                session->KickPlayer();
-                session->LogoutPlayer(false);
-            }
+                session->SchedulePlayerLogout(false);
         }
 
         MutationStatus AbortMutation(Player& player, std::string* error, char const* operation)
@@ -475,9 +478,9 @@ namespace ReagentBank
             " AND amount <= " + std::to_string(capMinusAdd) + " AND revision < 4294967295");
         return "UPDATE custom_reagent_bank SET "
                "mutation_guard = IF(" + ok + ", 1, 0), "
-               "amount = IF(" + ok + ", amount + " + std::to_string(add) + ", amount), "
-               "item_subclass = IF(" + ok + ", " + std::to_string(subclass) + ", item_subclass), "
-               "revision = IF(" + ok + ", revision + 1, revision) "
+               "amount = amount + " + std::to_string(add) + ", "
+               "item_subclass = " + std::to_string(subclass) + ", "
+               "revision = revision + 1 "
                "WHERE character_id = " + std::to_string(characterId)
             + " AND item_entry = " + std::to_string(itemEntry);
     }
@@ -490,8 +493,8 @@ namespace ReagentBank
             " AND amount >= " + std::to_string(debit) + " AND revision < 4294967295");
         return "UPDATE custom_reagent_bank SET "
                "mutation_guard = IF(" + ok + ", 1, 0), "
-               "amount = IF(" + ok + ", " + std::to_string(nextAmount) + ", amount), "
-               "revision = IF(" + ok + ", revision + 1, revision) "
+               "amount = " + std::to_string(nextAmount) + ", "
+               "revision = revision + 1 "
                "WHERE character_id = " + std::to_string(characterId)
             + " AND item_entry = " + std::to_string(itemEntry);
     }
@@ -617,14 +620,81 @@ namespace ReagentBank
         return LoadBalance(characterId, itemEntry).amount;
     }
 
+    bool HasPurchased(uint32_t characterId)
+    {
+        QueryResult* result = CharacterDatabase.PQuery(
+            "SELECT 1 FROM custom_reagent_bank_access WHERE character_id = %u",
+            characterId);
+        if (!result)
+            return false;
+
+        delete result;
+        return true;
+    }
+
+    MutationStatus Purchase(Player& player, uint32_t costCopper, std::string* error)
+    {
+        uint32 const guid = player.GetGUIDLow();
+        if (HasPurchased(guid))
+            return MutationStatus::Ok;
+
+        if (player.GetMoney() < costCopper)
+        {
+            if (error)
+                *error = kPurchaseNotEnoughMoneyError;
+            return MutationStatus::Failed;
+        }
+
+        if (!CharacterDatabase.BeginTransaction(guid))
+        {
+            sLog.outError("ReagentBank: BeginTransaction failed on purchase for player %u", guid);
+            SetError(error, ResultCode::DbError);
+            return MutationStatus::Failed;
+        }
+
+        // Re-check after opening the transaction so a duplicate purchase can
+        // never charge a character that was already unlocked by another path.
+        if (HasPurchased(guid))
+        {
+            CharacterDatabase.RollbackTransaction();
+            return MutationStatus::Ok;
+        }
+
+        player.ModifyMoney(-static_cast<int32>(costCopper));
+        player.SaveInventoryAndGoldToDB();
+
+        if (!CharacterDatabase.PExecute(
+                "INSERT INTO custom_reagent_bank_access (character_id) VALUES (%u)", guid))
+        {
+            sLog.outError("ReagentBank: failed to queue access purchase for player %u", guid);
+            return AbortMutation(player, error, "purchase access queue");
+        }
+
+        if (!CharacterDatabase.CommitTransactionDirect())
+        {
+            sLog.outError("ReagentBank: CommitTransactionDirect failed on purchase for player %u", guid);
+            return AbortMutation(player, error, "purchase commit");
+        }
+
+        if (sReagentBankConfig.Debug())
+            sLog.outDebug("ReagentBank: player %u purchased Material Storage for %u copper", guid, costCopper);
+        return MutationStatus::Ok;
+    }
+
     bool DeleteCharacterRows(uint32_t characterId)
     {
+        bool const accessOk = CharacterDatabase.PExecute(
+            "DELETE FROM custom_reagent_bank_access WHERE character_id = %u",
+            characterId);
+        if (!accessOk)
+            sLog.outError("ReagentBank: failed to delete access row for character %u", characterId);
+
         bool const ok = CharacterDatabase.PExecute(
             "DELETE FROM custom_reagent_bank WHERE character_id = %u",
             characterId);
         if (!ok)
             sLog.outError("ReagentBank: failed to delete rows for character %u", characterId);
-        return ok;
+        return accessOk && ok;
     }
 
     MutationStatus DepositStack(Player& player, Item& item, std::string* error)

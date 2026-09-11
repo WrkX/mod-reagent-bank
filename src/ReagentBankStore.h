@@ -32,9 +32,9 @@ namespace ReagentBank
     // A mutator may have changed the live Player object before its direct DB
     // transaction reports failure. SessionAborted is not a client ResultCode:
     // the caller must not send another reply or dereference that Player. The
-    // store has unloaded it without saving, so login reloads the last committed
-    // inventory and balance state. Failed still carries a ResultCode token
-    // (including DB_ERROR for pre-mutation database errors).
+    // store has scheduled it for a deferred no-save logout, so login reloads
+    // the last committed inventory and balance state. Failed still carries a
+    // ResultCode token (including DB_ERROR for pre-mutation database errors).
     enum class MutationStatus : uint8_t
     {
         Ok,
@@ -49,6 +49,8 @@ namespace ReagentBank
         return status == MutationStatus::SessionAborted;
     }
     bool IsSessionAbortedError(std::string const& error);
+
+    constexpr char const* kPurchaseNotEnoughMoneyError = "NOT_ENOUGH_MONEY";
 
     struct ItemView
     {
@@ -129,6 +131,12 @@ namespace ReagentBank
 
     std::vector<StoredRow> LoadRows(uint32_t characterId);
     uint32_t LoadAmount(uint32_t characterId, uint32_t itemEntry);
+
+    bool HasPurchased(uint32_t characterId);
+    // The purchase mutates Player money and the persistent access row in one
+    // direct character transaction. On a post-mutation commit failure the
+    // caller must stop using Player; the store schedules a no-save logout.
+    MutationStatus Purchase(Player& player, uint32_t costCopper, std::string* error);
 
     bool DeleteCharacterRows(uint32_t characterId);
 

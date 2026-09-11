@@ -18,6 +18,7 @@ occupy normal bank slots.
 
 Players can:
 
+- purchase Material Storage once per character from a banker;
 - deposit one carried stack or deposit all eligible carried stacks;
 - query stored balances; and
 - withdraw a requested amount (one normal stack by default).
@@ -45,6 +46,11 @@ the mutation again. Older, backward, or ambiguous-half-ring IDs return
 `BAD_REQUEST` with `STALE_REQUEST`; successful mutations alone advance the
 revision.
 
+Characters that have not purchased Material Storage see the bundled standard
+StaticPopup confirmation box with the configured gold price and a Yes/No
+choice. The server validates the character's purchase state and current gold
+again after the client confirms.
+
 ## Module layout
 
 ```text
@@ -55,6 +61,7 @@ modules/mod-reagent-bank/
     mod-reagent-bank.conf.dist
   data/sql/character/
     20260907000000_reagent_bank.sql
+    20260911000000_reagent_bank_purchase.sql
   src/
     ReagentBankConfig.{h,cpp}
     ReagentBankProtocol.{h,cpp}
@@ -113,6 +120,7 @@ Module-specific settings live in `conf/mod-reagent-bank.conf.dist` under
 |---|---|---|
 | `ReagentBank.Enable` | `1` | Master switch; when `0`, no gossip option and open sessions close; stored rows are untouched |
 | `ReagentBank.DepositAllEnable` | `1` | Allow `DEPOSIT_ALL` |
+| `ReagentBank.PurchaseCost` | `250` | One-time unlock price per character, in whole gold; valid range `0..214748` |
 | `ReagentBank.MaxAmountPerItem` | `1000000` | Per-character ceiling per item entry; strict decimal `1..4294967295`, invalid values fall back to the default |
 | `ReagentBank.Debug` | `0` | Extra protocol/mutation logging |
 
@@ -132,6 +140,13 @@ be imported without a lossy conversion:
 | `revision` | Compare-and-change revision used to reject stale balance writes |
 | `legacy` | `1` only for balances present when this port migrates an upstream table |
 | `mutation_guard` | Internal FK-backed compare-and-change guard; always `1` in a valid row |
+
+### Table: `custom_reagent_bank_access`
+
+This table records which characters have purchased Material Storage. The
+purchase deducts the configured amount of gold and inserts this row in the
+same direct character transaction. Existing characters with Material Storage
+balances are migrated as already purchased.
 
 The table uses InnoDB. There is **no foreign key** to `characters` because this
 tree's `characters` table is MyISAM. It does have a private foreign key to the

@@ -39,6 +39,11 @@ namespace
     constexpr uint32 kAction = 0x52420001u; // not a GOSSIP_OPTION_* value
     constexpr std::size_t kReplayCacheCapacity = 32;
 
+    uint32 PurchaseCostCopper()
+    {
+        return sReagentBankConfig.PurchaseCostGold() * GOLD;
+    }
+
     // Cache response *metadata*, not complete snapshots. A max-size snapshot is
     // large enough that retaining 32 payload copies per open player would be an
     // avoidable memory sink. Replays regenerate a snapshot at the current
@@ -297,9 +302,10 @@ namespace
         SendS2C(player, ReagentBank::FormatResult(requestId, code, detail));
     }
 
-    // After a store mutation: SessionAborted means Player was unloaded — no
-    // addon reply and no further dereference. Failed keeps Player live and
-    // maps to a ResultCode (DB_ERROR for pre-mutation database failures).
+    // After a store mutation: SessionAborted means Player is scheduled for a
+    // no-save logout — no addon reply and no further dereference. Failed keeps
+    // Player live and maps to a ResultCode (DB_ERROR for pre-mutation database
+    // failures).
     bool ContinueAfterMutation(Player* player, uint32 guidLow, uint32 requestId,
                                ReagentBank::MutationStatus status, std::string const& error)
     {
@@ -347,6 +353,67 @@ namespace
         std::vector<std::string> snapshot;
         AppendSnapshot(snapshot, 0, revision, rows);
         SendPayloads(player, snapshot);
+    }
+
+    void HandlePurchase(Player* player)
+    {
+        if (!player || !player->GetSession() || !player->PlayerTalkClass)
+            return;
+
+        if (!sReagentBankConfig.Enabled())
+        {
+            player->GetSession()->SendNotification("Material Storage is disabled.");
+            return;
+        }
+
+        ObjectGuid const bankerGuid = player->GetSession()->GetCurrentGossipGUID();
+        Creature* banker = player->GetNPCIfCanInteractWith(bankerGuid, UNIT_NPC_FLAG_BANKER);
+        if (!banker)
+            return;
+
+        GossipMenu& menu = player->PlayerTalkClass->GetGossipMenu();
+        bool hasPurchaseOption = false;
+        for (unsigned int item = 0; item < menu.MenuItemCount(); ++item)
+        {
+            if (menu.MenuItemSender(item) == kSender && menu.MenuItemAction(item) == kAction)
+            {
+                hasPurchaseOption = true;
+                break;
+            }
+        }
+
+        if (!hasPurchaseOption)
+            return;
+
+        if (!ReagentBank::HasPurchased(player->GetGUIDLow()))
+        {
+            std::string error;
+            ReagentBank::MutationStatus const status =
+                ReagentBank::Purchase(*player, PurchaseCostCopper(), &error);
+            if (ReagentBank::MutationUnloadedPlayer(status)
+                || ReagentBank::IsSessionAbortedError(error))
+                return;
+
+            if (status != ReagentBank::MutationStatus::Ok)
+            {
+                if (error == ReagentBank::kPurchaseNotEnoughMoneyError)
+                {
+                    player->SendBuyError(BUY_ERR_NOT_ENOUGHT_MONEY, banker, 0, 0);
+                    player->GetSession()->SendNotification("You do not have enough money to purchase Material Storage.");
+                }
+                else
+                    player->GetSession()->SendNotification("Material Storage purchase failed.");
+                return;
+            }
+
+            if (sReagentBankConfig.Debug())
+                sLog.outDebug("ReagentBank: PURCHASE player=%u bankerEntry=%u cost=%ug",
+                    player->GetGUIDLow(), banker->GetEntry(), sReagentBankConfig.PurchaseCostGold());
+        }
+
+        player->PlayerTalkClass->CloseGossip();
+        CreateContext(player, bankerGuid);
+        SendOpenAndSnapshot(player);
     }
 
     bool VerifyEquippedBagSlot(Player* player, ReagentBank::BagSlot const& pos)
@@ -496,6 +563,12 @@ namespace
             return;
         }
 
+        if (cmd.command == ReagentBank::Command::Purchase)
+        {
+            HandlePurchase(player);
+            return;
+        }
+
         if (cmd.command == ReagentBank::Command::Close)
         {
             EraseContext(guidLow);
@@ -587,7 +660,11 @@ namespace
         if (menu.MenuItemCount() >= GOSSIP_MAX_MENU_ITEMS)
             return false;
 
-        menu.AddMenuItem(GOSSIP_ICON_MONEY_BAG, "Material Storage", kSender, kAction, "", false);
+        bool const purchased = ReagentBank::HasPurchased(player->GetGUIDLow());
+        std::string const optionText = purchased
+            ? "Material Storage"
+            : "Purchase Material Storage (" + std::to_string(sReagentBankConfig.PurchaseCostGold()) + "g)";
+        menu.AddMenuItem(GOSSIP_ICON_MONEY_BAG, optionText, kSender, kAction, "", false);
         // GossipMenu keeps a parallel action-data vector. The select packet is
         // intercepted below, but keeping vectors aligned also makes a stale or
         // malformed packet harmless to the core's normal select path.
@@ -600,8 +677,22 @@ class ReagentBankWorldScript : public WorldScript
 {
 public:
     ReagentBankWorldScript()
-        : WorldScript("ReagentBankWorldScript", { WORLDHOOK_ON_AFTER_CONFIG_LOAD })
+        : WorldScript("ReagentBankWorldScript", {
+              WORLDHOOK_ON_AFTER_CONFIG_LOAD,
+              WORLDHOOK_ON_STARTUP
+          })
     {
+    }
+
+    void OnStartup() override
+    {
+        // The initial config load happens before module scripts are registered,
+        // so ON_AFTER_CONFIG_LOAD cannot initialize this module on first boot.
+        // Load the cached values again once the world and script registries are
+        // ready, then update bankers that were already spawned.
+        sReagentBankConfig.Load(false);
+        if (sReagentBankConfig.Enabled())
+            MarkLoadedBankersGossipable();
     }
 
     void OnAfterConfigLoad(bool reload) override
@@ -709,6 +800,13 @@ public:
         }
 
         player->PlayerTalkClass->CloseGossip();
+
+        if (!ReagentBank::HasPurchased(player->GetGUIDLow()))
+        {
+            player->GetSession()->SendNotification("Please confirm the Material Storage purchase.");
+            return false;
+        }
+
         CreateContext(player, guid);
         SendOpenAndSnapshot(player);
         if (sReagentBankConfig.Debug())

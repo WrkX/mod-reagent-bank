@@ -199,6 +199,20 @@ TEST(ReagentBankRules, MaxAmountParserAcceptsFullUint32RangeOnly)
     EXPECT_FALSE(ReagentBank::ParseMaxAmount("1x", value));
 }
 
+TEST(ReagentBankRules, PurchaseCostParserAcceptsSafeGoldRange)
+{
+    uint32_t value = 999;
+    EXPECT_TRUE(ReagentBank::ParsePurchaseCostGold("0", value));
+    EXPECT_EQ(value, 0u);
+    EXPECT_TRUE(ReagentBank::ParsePurchaseCostGold("250", value));
+    EXPECT_EQ(value, 250u);
+    EXPECT_TRUE(ReagentBank::ParsePurchaseCostGold("214748", value));
+    EXPECT_EQ(value, 214748u);
+    EXPECT_FALSE(ReagentBank::ParsePurchaseCostGold("214749", value));
+    EXPECT_FALSE(ReagentBank::ParsePurchaseCostGold("-1", value));
+    EXPECT_FALSE(ReagentBank::ParsePurchaseCostGold("1.5", value));
+}
+
 TEST(ReagentBankRules, RejectsWrongClass)
 {
     ItemView view = EligibleView();
@@ -479,12 +493,21 @@ TEST(ReagentBankRules, MutationSqlNeverWritesNullAndFailsStaleIndependentlyOfSql
     EXPECT_NE(credit.find(", 1, 0)"), std::string::npos);
     EXPECT_NE(credit.find("amount = 10"), std::string::npos);
     EXPECT_NE(credit.find("revision = 2"), std::string::npos);
+    EXPECT_NE(credit.find("amount = amount + 20"), std::string::npos);
+    EXPECT_NE(credit.find("item_subclass = 7"), std::string::npos);
+    EXPECT_NE(credit.find("revision = revision + 1"), std::string::npos);
+    EXPECT_EQ(credit.find("amount = IF("), std::string::npos);
+    EXPECT_EQ(credit.find("revision = IF("), std::string::npos);
     EXPECT_EQ(credit.find("NULL"), std::string::npos);
     EXPECT_EQ(credit.find("mutation_guard = NULL"), std::string::npos);
 
     std::string const debit = FormatDebitUpdateSql(42, 2589, 0, 10, 10, 2, 1);
     EXPECT_NE(debit.find("mutation_guard = IF("), std::string::npos);
     EXPECT_NE(debit.find(", 1, 0)"), std::string::npos);
+    EXPECT_NE(debit.find("amount = 0"), std::string::npos);
+    EXPECT_NE(debit.find("revision = revision + 1"), std::string::npos);
+    EXPECT_EQ(debit.find("amount = IF("), std::string::npos);
+    EXPECT_EQ(debit.find("revision = IF("), std::string::npos);
     EXPECT_EQ(debit.find("NULL"), std::string::npos);
 
     std::string const del = FormatDebitDeleteSql(42, 2589, 3, 1);

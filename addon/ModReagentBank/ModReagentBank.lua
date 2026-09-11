@@ -8,7 +8,7 @@ local AddonName = "ModReagentBank"
 local Prefix = "RBANK"
 
 -- Packaging substitutes this for FrameXML delivery.
-local TEXTURE_ROOT = "Interface\\AddOns\\ModReagentBank\\textures\\marble"
+local TEXTURE_ROOT = "Interface\\AddOns\\ModReagentBank\\textures\\marble.tga"
 local FALLBACK_BG = "Interface\\Tooltips\\UI-Tooltip-Background"
 
 local ITEM_CLASS_GEM = 3
@@ -23,9 +23,19 @@ local MAX_SNAPSHOT_ROWS = 4096
 local ITEMINFO_RETRY_INTERVAL = 0.35
 local RANGE_CHECK_INTERVAL = 0.5
 
+local FRAME_WIDTH = 520
+local FRAME_HEIGHT = 560
+local SLOT_SIZE = 42
+local SLOT_GAP = 2
+local GRID_COLUMNS = 10
+local SCROLL_CHILD_WIDTH = 440
+local GRID_START_X = ((SCROLL_CHILD_WIDTH - (GRID_COLUMNS * SLOT_SIZE
+    + (GRID_COLUMNS - 1) * SLOT_GAP)) / 2) + 12
+
 local CATEGORY_ORDER = {
-    "gems", "reagents", "general", "parts", "explosives", "devices",
-    "cloth", "leather", "metal", "meat", "herbs", "elemental", "enchanting", "other",
+    "cloth", "leather", "metal", "enchanting", "gems", "herbs",
+    "elemental", "meat", "reagents", "general", "parts", "explosives",
+    "devices", "other",
 }
 
 local CATEGORY_LABELS = {
@@ -38,11 +48,140 @@ local CATEGORY_LABELS = {
     cloth = "Cloth",
     leather = "Leather",
     metal = "Metal & Stone",
-    meat = "Meat / Cooking",
+    meat = "Cooking",
     herbs = "Herbs",
-    elemental = "Elemental",
+    elemental = "Elements",
     enchanting = "Enchanting",
-    other = "Other",
+    other = "Other Materials",
+}
+
+-- The original AzerothCore addon always showed its material catalogue, with
+-- empty entries dimmed. Keep the Vanilla-era portion of that catalogue so an
+-- empty bank still looks and behaves like the original UI. Stored, carried,
+-- and Turtle-specific entries are merged into this model dynamically.
+local MATERIAL_CATALOG = {
+    cloth = {
+        2589, 2996, 2592, 2997, 4306, 4305, 4337, 4338, 14047, 14048, 14342, 14256,
+    },
+    leather = {
+        2934, 2318, 783, 4231, 2319, 4232, 4233, 4234, 4235, 4236, 4304,
+        8169, 8172, 8170, 8171, 15407,
+    },
+    metal = {
+        2770, 2835, 3470, 2840, 2771, 2836, 3478, 3576, 2841, 2775, 2842,
+        2772, 2838, 3486, 3575, 3859, 2776, 3577, 3858, 7912, 7966, 3860,
+        7911, 6037, 10620, 12365, 12644, 12359, 11370, 11099, 11371,
+    },
+    enchanting = {
+        10940, 10938, 10939, 10978, 10998, 11082, 11083, 11084, 11134,
+        11135, 11137, 11174, 11175, 11176, 11138, 11139, 11177, 11178,
+        16202, 16203, 16204, 14343, 14344, 20725,
+    },
+    gems = {
+        774, 818, 1210, 1705, 1206, 1529, 3864, 7909, 9262, 7910, 12799,
+        12361, 12364, 12800, 12363, 11754, 18335,
+    },
+    herbs = {
+        765, 2447, 785, 2449, 2453, 2450, 2452, 3355, 3356, 3357, 3358,
+        3369, 3818, 3819, 3820, 3821, 4625, 8153, 8831, 8836, 8838, 8839,
+        8845, 8846, 13463, 13464, 13465, 13466, 13467, 13468,
+    },
+    elemental = {
+        7067, 7068, 7070, 7082, 7076, 7078, 7080, 12803, 12808,
+    },
+    meat = {
+        2672, 2673, 2674, 2675, 769, 1080, 1081, 2924, 3712, 3713, 5471,
+        5469, 5467, 5503, 5504, 4655, 12202, 12203, 12204, 12205, 12206,
+        12208, 12223, 20424,
+    },
+}
+
+-- Vanilla/Turtle clients do not consistently expose an icon path for an item
+-- that is not already cached. Keep the catalogue icons deterministic so every
+-- empty material slot can still display its dimmed, correct icon immediately.
+local CATALOG_ICON_NAMES = {
+    [765] = "INV_Misc_Herb_10", [769] = "INV_Misc_Food_14",
+    [774] = "INV_Misc_Gem_Emerald_03", [783] = "INV_Misc_Pelt_Wolf_Ruin_02",
+    [785] = "INV_Jewelry_Talisman_03", [818] = "INV_Misc_Gem_Opal_03",
+    [1080] = "INV_Misc_Food_72", [1081] = "INV_Misc_MonsterSpiderCarapace_01",
+    [1206] = "INV_Misc_Gem_Emerald_02", [1210] = "INV_Misc_Gem_Amethyst_01",
+    [1529] = "INV_Misc_Gem_Stone_01", [1705] = "INV_Misc_Gem_Crystal_01",
+    [2318] = "INV_Misc_LeatherScrap_03", [2319] = "INV_Misc_LeatherScrap_05",
+    [2447] = "INV_Misc_Flower_02", [2449] = "INV_Misc_Herb_07",
+    [2450] = "INV_Misc_Root_01", [2452] = "INV_Misc_Herb_04",
+    [2453] = "INV_Misc_Herb_01", [2589] = "INV_Fabric_Linen_01",
+    [2592] = "INV_Fabric_Wool_01", [2672] = "INV_Misc_Food_14",
+    [2673] = "INV_Misc_Food_69", [2674] = "INV_Misc_Food_51",
+    [2675] = "INV_Misc_Birdbeck_02", [2770] = "INV_Ore_Copper_01",
+    [2771] = "INV_Ore_Tin_01", [2772] = "INV_Ore_Iron_01",
+    [2775] = "INV_Stone_16", [2776] = "INV_Ore_Gold_01",
+    [2835] = "INV_Stone_06", [2836] = "INV_Stone_09",
+    [2838] = "INV_Stone_12", [2840] = "INV_Ingot_02",
+    [2841] = "INV_Ingot_Bronze", [2842] = "INV_Ingot_01",
+    [2924] = "INV_Misc_Food_14", [2934] = "INV_Misc_Pelt_Bear_Ruin_05",
+    [2996] = "INV_Fabric_Linen_02", [2997] = "INV_Fabric_Wool_03",
+    [3355] = "INV_Misc_Flower_01", [3356] = "INV_Misc_Herb_03",
+    [3357] = "INV_Misc_Root_02", [3358] = "INV_Misc_Herb_08",
+    [3369] = "INV_Misc_Dust_02", [3470] = "INV_Stone_GrindingStone_01",
+    [3478] = "INV_Stone_GrindingStone_02", [3486] = "INV_Stone_GrindingStone_03",
+    [3575] = "INV_Ingot_Iron", [3576] = "INV_Ingot_05",
+    [3577] = "INV_Ingot_03", [3712] = "INV_Misc_Food_70",
+    [3713] = "INV_Misc_Food_Wheat_02", [3818] = "INV_Misc_Herb_12",
+    [3819] = "INV_Misc_Flower_03", [3820] = "INV_Misc_Herb_11",
+    [3821] = "INV_Misc_Herb_15", [3858] = "INV_Ore_Mithril_02",
+    [3859] = "INV_Ingot_Steel", [3860] = "INV_Ingot_06",
+    [3864] = "INV_Misc_Gem_Opal_02", [4231] = "INV_Misc_Pelt_Wolf_01",
+    [4232] = "INV_Misc_Pelt_Boar_Ruin_02", [4233] = "INV_Misc_Pelt_Bear_02",
+    [4234] = "INV_Misc_LeatherScrap_07", [4235] = "INV_Misc_Pelt_Wolf_Ruin_03",
+    [4236] = "INV_Misc_Pelt_Wolf_02", [4304] = "INV_Misc_LeatherScrap_08",
+    [4305] = "INV_Fabric_Silk_03", [4306] = "INV_Fabric_Silk_01",
+    [4337] = "Spell_Nature_Web", [4338] = "INV_Fabric_Mageweave_01",
+    [4625] = "INV_Misc_Herb_19", [4655] = "INV_Misc_Food_51",
+    [5467] = "INV_Misc_Food_14", [5469] = "INV_Misc_Food_16",
+    [5471] = "INV_Misc_Pelt_Wolf_Ruin_03", [5503] = "INV_Misc_Food_51",
+    [5504] = "INV_Misc_Food_51", [6037] = "INV_Ingot_08",
+    [7067] = "INV_Ore_Iron_01", [7068] = "Spell_Fire_Fire",
+    [7070] = "INV_Potion_03", [7076] = "Spell_Nature_StrengthOfEarthTotem02",
+    [7078] = "Spell_Fire_Volcano", [7080] = "Spell_Nature_Acid_01",
+    [7082] = "Spell_Nature_EarthBind", [7909] = "INV_Misc_Gem_Crystal_02",
+    [7910] = "INV_Misc_Gem_Ruby_02", [7911] = "INV_Ore_TrueSilver_01",
+    [7912] = "INV_Stone_10", [7966] = "INV_Stone_GrindingStone_04",
+    [8153] = "INV_Misc_Herb_03", [8169] = "INV_Misc_Pelt_Bear_Ruin_01",
+    [8170] = "INV_Misc_LeatherScrap_02", [8171] = "INV_Misc_Pelt_Bear_Ruin_02",
+    [8172] = "INV_Misc_Pelt_Bear_01", [8831] = "INV_Misc_Herb_17",
+    [8836] = "INV_Misc_Herb_13", [8838] = "INV_Misc_Herb_18",
+    [8839] = "INV_Misc_Herb_14", [8845] = "INV_Mushroom_08",
+    [8846] = "INV_Misc_Herb_16", [9262] = "INV_Misc_Gem_Sapphire_03",
+    [10620] = "INV_Ore_Thorium_02", [10938] = "INV_Enchant_EssenceMagicSmall",
+    [10939] = "INV_Enchant_EssenceMagicLarge", [10940] = "INV_Enchant_DustStrange",
+    [10978] = "INV_Enchant_ShardGlimmeringSmall", [10998] = "INV_Enchant_EssenceAstralSmall",
+    [11082] = "INV_Enchant_EssenceAstralLarge", [11083] = "INV_Enchant_DustSoul",
+    [11084] = "INV_Enchant_ShardGlimmeringLarge", [11099] = "INV_Ore_Mithril_01",
+    [11134] = "INV_Enchant_EssenceMysticalSmall", [11135] = "INV_Enchant_EssenceMysticalLarge",
+    [11137] = "INV_Enchant_DustVision", [11138] = "INV_Enchant_ShardGlowingSmall",
+    [11139] = "INV_Enchant_ShardGlowingLarge", [11174] = "INV_Enchant_EssenceNetherSmall",
+    [11175] = "INV_Enchant_EssenceNetherLarge", [11176] = "INV_Enchant_DustDream",
+    [11177] = "INV_Enchant_ShardRadientSmall", [11178] = "INV_Enchant_ShardRadientLarge",
+    [11370] = "INV_Ore_Mithril_01", [11371] = "INV_Ingot_Mithril",
+    [11754] = "INV_Misc_Gem_01", [12202] = "INV_Misc_Food_14",
+    [12203] = "INV_Misc_Food_71", [12204] = "INV_Misc_Food_70",
+    [12205] = "INV_Misc_Food_51", [12206] = "INV_Misc_Food_51",
+    [12208] = "INV_Misc_Food_14", [12223] = "INV_Misc_Pelt_Bear_Ruin_05",
+    [12359] = "INV_Ingot_07", [12361] = "INV_Misc_Gem_Sapphire_02",
+    [12363] = "INV_Misc_Gem_Topaz_01", [12364] = "INV_Misc_Gem_Emerald_01",
+    [12365] = "INV_Misc_StoneTablet_07", [12644] = "INV_Stone_GrindingStone_05",
+    [12799] = "INV_Misc_Gem_Opal_01", [12800] = "INV_Misc_Gem_Diamond_01",
+    [12803] = "Spell_Nature_AbolishMagic", [12808] = "Spell_Shadow_ShadeTrueSight",
+    [13463] = "INV_Misc_Herb_DreamFoil", [13464] = "INV_Misc_Herb_SansamRoot",
+    [13465] = "INV_Misc_Herb_MountainSilverSage", [13466] = "INV_Misc_Herb_PlagueBloom",
+    [13467] = "INV_Misc_Herb_IceCap", [13468] = "INV_Misc_Herb_BlackLotus",
+    [14047] = "INV_Fabric_PurpleFire_01", [14048] = "INV_Fabric_PurpleFire_02",
+    [14256] = "INV_Fabric_FelRag", [14342] = "INV_Fabric_MoonRag_01",
+    [14343] = "INV_Enchant_ShardBrilliantSmall", [14344] = "INV_Enchant_ShardBrilliantLarge",
+    [15407] = "INV_Misc_Pelt_Bear_03", [16202] = "INV_Enchant_EssenceEternalSmall",
+    [16203] = "INV_Enchant_EssenceEternalLarge", [16204] = "INV_Enchant_DustIllusion",
+    [18335] = "INV_Misc_Gem_02", [20424] = "INV_Misc_Food_51",
+    [20725] = "INV_Enchant_ShardNexusLarge",
 }
 
 local RESULT_MESSAGES = {
@@ -87,6 +226,7 @@ local rangeElapsed = 0
 
 local slotButtons = {}
 local categoryHeaders = {}
+local categorySeparators = {}
 local depositAllBtn
 local statusLabel
 local scrollChild
@@ -101,6 +241,7 @@ local SetStatus
 local ClearPendingRequest
 local Initialize
 local InstallBagHook
+local InstallGossipPurchaseHook
 local ExpirePendingSnapshots
 
 -- ===== helpers =====
@@ -192,10 +333,27 @@ end
 
 local function ResolveItemIcon(entry)
     local name, _, quality, _, _, _, stackCount, _, texture = UnpackItemInfo(entry)
+    -- Some Turtle builds return a numeric display/icon id while item data is
+    -- uncached. Vanilla Texture:SetTexture treats one number as a solid-color
+    -- call, producing the red squares seen in the material grid. Only file
+    -- paths are valid here; GetItemInfo above also requests uncached item data.
+    if type(texture) ~= "string" or texture == "" then
+        texture = nil
+    end
+    if not texture and GetItemIcon then
+        local candidate = GetItemIcon(entry)
+        if type(candidate) == "string" and candidate ~= "" then
+            texture = candidate
+        end
+    end
+    if not texture and CATALOG_ICON_NAMES[entry] then
+        texture = "Interface\\Icons\\" .. CATALOG_ICON_NAMES[entry]
+    end
     if texture then
         unresolvedItems[entry] = nil
         return texture, name, quality, stackCount
     end
+    QueueItemResolve(entry)
     return nil
 end
 
@@ -239,6 +397,7 @@ local REJECT_TYPES = {
 
 local function LooksEligible(entry)
     local name, _, _, _, itemType, itemSubType, maxStack, equipLoc = UnpackItemInfo(entry)
+    maxStack = tonumber(maxStack)
     if not name then
         QueueItemResolve(entry)
         return true
@@ -263,7 +422,12 @@ local function UpsertVisibleRow(row)
         existing.carried = row.carried or existing.carried or 0
         existing.itemClass = row.itemClass or existing.itemClass
         existing.itemSubclass = row.itemSubclass or existing.itemSubclass
-        existing.category = row.category or existing.category
+        -- Catalogue entries own a stable visual slot. Server metadata and
+        -- localized GetItemInfo subtype strings may disagree between client
+        -- builds, but must never move known cloth/leather/etc. to another row.
+        if not existing.catalog then
+            existing.category = row.category or existing.category
+        end
         existing.bag = row.bag or existing.bag
         existing.slot = row.slot or existing.slot
         existing.carriedOnly = (existing.stored or 0) <= 0 and (existing.carried or 0) > 0
@@ -274,6 +438,22 @@ end
 
 local function BuildDisplayModel()
     visibleRows = {}
+
+    for _, category in ipairs(CATEGORY_ORDER) do
+        local entries = MATERIAL_CATALOG[category]
+        if entries then
+            for i = 1, table.getn(entries) do
+                UpsertVisibleRow({
+                    entry = entries[i],
+                    stored = 0,
+                    carried = 0,
+                    category = category,
+                    catalog = true,
+                    carriedOnly = false,
+                })
+            end
+        end
+    end
 
     for i = 1, table.getn(visibleSnapshot.rows) do
         local r = visibleSnapshot.rows[i]
@@ -652,44 +832,40 @@ end
 -- ===== UI =====
 
 local function ResolveBgTexture()
-    if string.find(TEXTURE_ROOT, "FrameXML", 1, true) then
-        bgTexturePath = TEXTURE_ROOT
-    else
-        bgTexturePath = FALLBACK_BG
-    end
+    bgTexturePath = TEXTURE_ROOT
 end
 
 local function ApplyBackdrop(frame)
     frame:SetBackdrop({
-        bgFile = bgTexturePath or FALLBACK_BG,
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true,
-        tileSize = 16,
-        edgeSize = 16,
-        insets = { left = 4, right = 4, top = 4, bottom = 4 },
+        bgFile = "Interface\\Buttons\\WHITE8X8",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = false,
+        tileSize = 0,
+        edgeSize = 32,
+        insets = { left = 11, right = 12, top = 12, bottom = 11 },
     })
-    frame:SetBackdropColor(1, 1, 1, 0.92)
-    frame:SetBackdropBorderColor(0.6, 0.6, 0.6, 1)
+    frame:SetBackdropColor(0, 0, 0, 0)
+    frame:SetBackdropBorderColor(1, 1, 1, 1)
 end
 
 local function CreateSlotButton(parent, index)
     local btn = CreateFrame("Button", nil, parent)
-    btn:SetWidth(36)
-    btn:SetHeight(36)
+    btn:SetWidth(SLOT_SIZE)
+    btn:SetHeight(SLOT_SIZE)
     btn:EnableMouse(true)
     btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
     local icon = btn:CreateTexture(nil, "ARTWORK")
-    icon:SetAllPoints(btn)
+    icon:SetPoint("TOPLEFT", btn, "TOPLEFT", 3, -3)
+    icon:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -3, 3)
     icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     btn.icon = icon
 
     local border = btn:CreateTexture(nil, "OVERLAY")
-    border:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
+    border:SetAllPoints(icon)
+    border:SetTexture("Interface\\Buttons\\ButtonHilight-Square")
     border:SetBlendMode("ADD")
-    border:SetWidth(64)
-    border:SetHeight(64)
-    border:SetPoint("CENTER", btn, "CENTER", 0, 0)
+    border:SetAlpha(0.55)
     border:Hide()
     btn.border = border
 
@@ -698,19 +874,34 @@ local function CreateSlotButton(parent, index)
     btn.countText = countText
 
     btn:SetScript("OnEnter", function(self)
+        self = self or this
+        if not self then return end
         if self.entry then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:SetHyperlink("item:" .. self.entry .. ":0:0:0")
+            -- Some Turtle/Vanilla builds resolve uncached catalogue entries
+            -- only through the item-id API. Keep the hyperlink path for old
+            -- clients and use the newer API as a fallback when available.
+            if GameTooltip.SetItemByID and not GetItemInfo(self.entry) then
+                GameTooltip:SetItemByID(self.entry)
+            end
             if self.mode == "stored" then
                 GameTooltip:AddLine("Right-click: withdraw one stack", 0.8, 0.8, 0.8)
                 GameTooltip:AddLine("Shift-right-click: withdraw amount", 0.8, 0.8, 0.8)
             elseif self.mode == "carried" then
                 GameTooltip:AddLine("Carried — right-click bag slot to deposit", 0.8, 0.8, 0.8)
+            elseif self.mode == "empty" then
+                GameTooltip:AddLine("Not stored in Material Storage", 0.8, 0.8, 0.8)
             end
+            if self.border then self.border:Show() end
             GameTooltip:Show()
         end
     end)
-    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    btn:SetScript("OnLeave", function(self)
+        self = self or this
+        GameTooltip:Hide()
+        if self and self.border then self.border:Hide() end
+    end)
 
     btn:SetScript("OnClick", function(self, button)
         self = self or this
@@ -735,6 +926,9 @@ local function LayoutScrollContent()
     for i = 1, table.getn(categoryHeaders) do
         categoryHeaders[i]:Hide()
     end
+    for i = 1, table.getn(categorySeparators) do
+        categorySeparators[i]:Hide()
+    end
     for i = 1, table.getn(slotButtons) do
         slotButtons[i]:Hide()
     end
@@ -749,11 +943,8 @@ local function LayoutScrollContent()
         table.insert(grouped[key], row)
     end
 
-    local y = -8
+    local y = -6
     local slotIndex = 0
-    local col = 0
-    local cols = 10
-    local cell = 40
     local headerIndex = 0
 
     for _, catKey in ipairs(CATEGORY_ORDER) do
@@ -762,16 +953,29 @@ local function LayoutScrollContent()
             headerIndex = headerIndex + 1
             local header = categoryHeaders[headerIndex]
             if not header then
-                header = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                header = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
                 categoryHeaders[headerIndex] = header
             end
             header:ClearAllPoints()
-            header:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 8, y)
+            header:SetPoint("TOP", scrollChild, "TOP", 0, y)
             header:SetText(CATEGORY_LABELS[catKey] or catKey)
-            header:SetTextColor(0.85, 0.72, 0.25)
+            header:SetTextColor(1, 0.82, 0)
             header:Show()
-            y = y - 18
-            col = 0
+            y = y - 20
+
+            local separator = categorySeparators[headerIndex]
+            if not separator then
+                separator = scrollChild:CreateTexture(nil, "ARTWORK")
+                separator:SetTexture("Interface\\Buttons\\WHITE8X8")
+                separator:SetVertexColor(0.8, 0.65, 0.2, 0.5)
+                separator:SetHeight(1)
+                categorySeparators[headerIndex] = separator
+            end
+            separator:ClearAllPoints()
+            separator:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 15, y)
+            separator:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", -9, y)
+            separator:Show()
+            y = y - 4
 
             for j = 1, table.getn(items) do
                 slotIndex = slotIndex + 1
@@ -779,57 +983,70 @@ local function LayoutScrollContent()
                 if not btn then btn = CreateSlotButton(scrollChild, slotIndex) end
 
                 local data = items[j]
+                local col = math.mod(j - 1, GRID_COLUMNS)
+                local row = math.floor((j - 1) / GRID_COLUMNS)
                 btn:ClearAllPoints()
-                btn:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 8 + col * cell, y - 36)
+                btn:SetPoint("TOPLEFT", scrollChild, "TOPLEFT",
+                    GRID_START_X + col * (SLOT_SIZE + SLOT_GAP),
+                    y - row * (SLOT_SIZE + SLOT_GAP))
 
                 btn.entry = data.entry
-                btn.mode = (data.stored and data.stored > 0) and "stored" or "carried"
+                if data.stored and data.stored > 0 then
+                    btn.mode = "stored"
+                elseif data.carried and data.carried > 0 then
+                    btn.mode = "carried"
+                else
+                    btn.mode = "empty"
+                end
 
                 local texture = ResolveItemIcon(data.entry)
                 if texture then
                     btn.icon:SetTexture(texture)
-                    btn.icon:SetVertexColor(1, 1, 1)
-                    btn.icon:SetAlpha(1)
+                    if btn.mode == "stored" then
+                        if btn.icon.SetDesaturated then btn.icon:SetDesaturated(false) end
+                        btn.icon:SetVertexColor(1, 1, 1)
+                        btn.icon:SetAlpha(1)
+                    else
+                        if btn.icon.SetDesaturated then btn.icon:SetDesaturated(true) end
+                        btn.icon:SetVertexColor(0.55, 0.55, 0.55)
+                        btn.icon:SetAlpha(0.28)
+                    end
                 else
                     btn.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
-                    btn.icon:SetVertexColor(0.6, 0.6, 0.6)
-                    btn.icon:SetAlpha(0.85)
+                    if btn.icon.SetDesaturated then btn.icon:SetDesaturated(true) end
+                    btn.icon:SetVertexColor(0.45, 0.45, 0.45)
+                    btn.icon:SetAlpha(0.28)
                 end
 
-                local count = (data.stored or 0) + (data.carried or 0)
-                if data.carried and data.carried > 0 and data.stored and data.stored > 0 then
-                    btn.countText:SetText(tostring(data.stored) .. "+" .. tostring(data.carried))
-                elseif data.stored and data.stored > 0 then
+                if data.stored and data.stored > 0 then
                     btn.countText:SetText(tostring(data.stored))
-                elseif data.carried and data.carried > 0 then
-                    btn.countText:SetText(tostring(data.carried))
                 else
                     btn.countText:SetText("")
                 end
 
-                if btn.mode == "stored" then
-                    btn.border:Show()
-                    if pendingRequest then btn:Disable() else btn:Enable() end
-                else
-                    btn.border:Hide()
+                -- Keep catalogue slots enabled even while empty. Disabled
+                -- Buttons do not consistently receive OnEnter in 1.12,
+                -- which prevented their item tooltip from appearing. OnClick
+                -- only permits stored items to withdraw, so this introduces
+                -- no action for empty/carried entries.
+                if btn.mode == "stored" and pendingRequest then
                     btn:Disable()
+                else
+                    btn:Enable()
                 end
+                if btn.mode ~= "stored" then btn.border:Hide() end
 
                 btn:Show()
-                col = col + 1
-                if col >= cols then
-                    col = 0
-                    y = y - cell
-                end
             end
-            if col > 0 then y = y - cell end
-            y = y - 8
+
+            local rows = math.ceil(table.getn(items) / GRID_COLUMNS)
+            y = y - rows * (SLOT_SIZE + SLOT_GAP) - 16
         end
     end
 
-    local height = -y + 16
-    if height < 200 then height = 200 end
-    scrollChild:SetWidth(420)
+    local height = -y + 40
+    if height < 320 then height = 320 end
+    scrollChild:SetWidth(SCROLL_CHILD_WIDTH)
     scrollChild:SetHeight(height)
 end
 
@@ -838,10 +1055,33 @@ RefreshUI = function()
 end
 
 StaticPopupDialogs["MODREAGENTBANK_DEPOSIT_ALL"] = {
-    text = "Deposit all eligible crafting materials from your backpack and carried bags into Material Storage?\n\nThis does NOT scan your normal bank.",
+    text = "Deposit all eligible crafting materials from your backpack and carried bags "
+        .. "into Material Storage?\n\nThis does NOT scan your normal bank.",
     button1 = YES,
     button2 = NO,
     OnAccept = function() SendDepositAll() end,
+    timeout = 0,
+    whileDead = 1,
+    hideOnEscape = 1,
+}
+
+StaticPopupDialogs["MODREAGENTBANK_PURCHASE"] = {
+    text = "%s",
+    button1 = YES,
+    button2 = NO,
+    OnAccept = function()
+        -- The server validates the current banker/menu state again. The
+        -- popup data is only visual metadata and must not gate the accept
+        -- callback on Vanilla clients, which do not always expose it here.
+        SendCommand("PURCHASE", NextRequestId())
+    end,
+    OnShow = function(frame)
+        frame = frame or this
+        if frame.data and frame.data.costCopper then
+            MoneyFrame_Update(frame:GetName() .. "MoneyFrame", frame.data.costCopper)
+        end
+    end,
+    hasMoneyFrame = 1,
     timeout = 0,
     whileDead = 1,
     hideOnEscape = 1,
@@ -876,8 +1116,8 @@ StaticPopupDialogs["MODREAGENTBANK_WITHDRAW"] = {
 
 local function CreateMainFrame()
     mainFrame = CreateFrame("Frame", "ModReagentBankFrame", UIParent)
-    mainFrame:SetWidth(448)
-    mainFrame:SetHeight(360)
+    mainFrame:SetWidth(FRAME_WIDTH)
+    mainFrame:SetHeight(FRAME_HEIGHT)
     mainFrame:SetMovable(true)
     mainFrame:EnableMouse(true)
     mainFrame:SetClampedToScreen(true)
@@ -887,10 +1127,34 @@ local function CreateMainFrame()
 
     ApplyBackdrop(mainFrame)
 
+    local contentBg = mainFrame:CreateTexture(nil, "BACKGROUND")
+    contentBg:SetTexture(bgTexturePath or FALLBACK_BG)
+    -- marble.tga is RGB, so the transparent 7px perimeter from the source
+    -- BLP was converted to black. Crop that perimeter instead of displaying
+    -- it as a black frame around the UI.
+    contentBg:SetTexCoord(7 / 512, 505 / 512, 7 / 512, 505 / 512)
+    contentBg:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", 0, 0)
+    contentBg:SetPoint("BOTTOMRIGHT", mainFrame, "BOTTOMRIGHT", 0, 0)
+    contentBg:SetVertexColor(1, 1, 1, 1)
+
+    -- Keep the material grid readable against the marble artwork. This is an
+    -- inner content overlay, intentionally separate from the outer frame rim.
+    local scrollOverlay = mainFrame:CreateTexture(nil, "BORDER")
+    scrollOverlay:SetTexture("Interface\\Buttons\\WHITE8X8")
+    scrollOverlay:SetVertexColor(0, 0, 0, 0.55)
+    scrollOverlay:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", 23, -40)
+    scrollOverlay:SetPoint("BOTTOMRIGHT", mainFrame, "BOTTOMRIGHT", -23, 42)
+
+    local header = mainFrame:CreateTexture(nil, "ARTWORK")
+    header:SetTexture("Interface\\DialogFrame\\UI-DialogBox-Header")
+    header:SetWidth(330)
+    header:SetHeight(64)
+    header:SetPoint("TOP", mainFrame, "TOP", 0, 12)
+
     local titleBar = CreateFrame("Frame", nil, mainFrame)
-    titleBar:SetWidth(448)
-    titleBar:SetHeight(28)
-    titleBar:SetPoint("TOP", mainFrame, "TOP", 0, 0)
+    titleBar:SetWidth(330)
+    titleBar:SetHeight(36)
+    titleBar:SetPoint("TOP", mainFrame, "TOP", 0, 10)
     titleBar:EnableMouse(true)
     titleBar:RegisterForDrag("LeftButton")
     titleBar:SetScript("OnDragStart", function() mainFrame:StartMoving() end)
@@ -908,8 +1172,18 @@ local function CreateMainFrame()
         RefreshUI()
     end)
 
+    mainFrame:SetScript("OnHide", function()
+        -- Every way of hiding the frame (close button, Escape, another UI
+        -- panel, or an external Hide call) must terminate the server context.
+        -- HideAndReset clears sessionOpen before hiding again, so this is
+        -- re-entrancy safe.
+        if sessionOpen then
+            HideAndReset()
+        end
+    end)
+
     local title = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("TOP", mainFrame, "TOP", 0, -10)
+    title:SetPoint("TOP", header, "TOP", 0, -14)
     title:SetText("Material Storage")
 
     mainFrame:SetScript("OnReceiveDrag", function()
@@ -924,6 +1198,8 @@ local function CreateMainFrame()
     end)
 
     mainFrame:SetScript("OnMouseUp", function(self, button)
+        self = self or this
+        button = button or arg1
         if button == "LeftButton" and CursorHasItem() then
             if pendingRequest then return end
             local bag, slot = FindLockedCursorSlot()
@@ -941,32 +1217,42 @@ local function CreateMainFrame()
     closeBtn:SetScript("OnClick", function() HideAndReset() end)
 
     statusLabel = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    statusLabel:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", 12, -34)
-    statusLabel:SetWidth(420)
+    statusLabel:SetPoint("BOTTOMLEFT", mainFrame, "BOTTOMLEFT", 24, 19)
+    statusLabel:SetWidth(300)
     statusLabel:SetJustifyH("LEFT")
     statusLabel:SetText("")
 
     depositAllBtn = CreateFrame("Button", nil, mainFrame, "UIPanelButtonTemplate")
-    depositAllBtn:SetWidth(120)
-    depositAllBtn:SetHeight(22)
-    depositAllBtn:SetPoint("TOPRIGHT", mainFrame, "TOPRIGHT", -36, -30)
-    depositAllBtn:SetText("Deposit All")
+    depositAllBtn:SetWidth(140)
+    depositAllBtn:SetHeight(24)
+    depositAllBtn:SetPoint("BOTTOMRIGHT", mainFrame, "BOTTOMRIGHT", -38, 14)
+    depositAllBtn:SetText("Deposit All Materials")
     depositAllBtn:SetScript("OnClick", function()
         StaticPopup_Show("MODREAGENTBANK_DEPOSIT_ALL")
     end)
 
     scrollFrame = CreateFrame("ScrollFrame", "ModReagentBankScroll", mainFrame, "UIPanelScrollFrameTemplate")
-    scrollFrame:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", 12, -56)
-    scrollFrame:SetPoint("BOTTOMRIGHT", mainFrame, "BOTTOMRIGHT", -30, 12)
+    scrollFrame:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", 20, -44)
+    scrollFrame:SetPoint("BOTTOMRIGHT", mainFrame, "BOTTOMRIGHT", -38, 46)
+
+    local scrollBar = getglobal("ModReagentBankScrollScrollBar")
+    if scrollBar then
+        scrollBar:ClearAllPoints()
+        scrollBar:SetPoint("TOPLEFT", scrollFrame, "TOPRIGHT", -5, -16)
+        scrollBar:SetPoint("BOTTOMLEFT", scrollFrame, "BOTTOMRIGHT", -5, 16)
+    end
 
     scrollChild = CreateFrame("Frame", nil, scrollFrame)
-    scrollChild:SetWidth(420)
-    scrollChild:SetHeight(200)
+    scrollChild:SetWidth(SCROLL_CHILD_WIDTH)
+    scrollChild:SetHeight(320)
     scrollFrame:SetScrollChild(scrollChild)
 
     table.insert(UISpecialFrames, "ModReagentBankFrame")
 
     mainFrame:SetScript("OnUpdate", function(self, elapsed)
+        self = self or this
+        elapsed = elapsed or arg1
+        if not self or type(elapsed) ~= "number" then return end
         if not self:IsShown() then return end
 
         itemInfoElapsed = itemInfoElapsed + elapsed
@@ -1012,13 +1298,47 @@ local bagModifiedClickHookInstalled = false
 local bagClickHookInstalled = false
 local origBagModifiedClick
 local origBagClick
+local gossipPurchaseHookInstalled = false
+local origGossipTitleButtonOnClick
+
+local function PurchaseGoldFromGossipText(text)
+    local _, _, gold = string.find(text or "", "^Purchase Material Storage %((%d+)g%)$")
+    return gold and tonumber(gold) or nil
+end
+
+InstallGossipPurchaseHook = function()
+    if gossipPurchaseHookInstalled or type(GossipTitleButton_OnClick) ~= "function" then
+        return
+    end
+
+    origGossipTitleButtonOnClick = GossipTitleButton_OnClick
+    GossipTitleButton_OnClick = function(a, b)
+        -- Turtle's 1.12 FrameXML uses `this`; newer compatible builds pass
+        -- the button as the first argument.
+        local button = type(a) == "table" and a or this
+        local text = button and button.GetText and button:GetText()
+        local gold = button and PurchaseGoldFromGossipText(text)
+        if gold then
+            StaticPopup_Show(
+                "MODREAGENTBANK_PURCHASE",
+                "Are you sure you want to purchase Material Storage for " .. gold .. "g?",
+                nil,
+                { gossipIndex = button:GetID(), costCopper = gold * 10000 }
+            )
+            return
+        end
+
+        return origGossipTitleButtonOnClick(a, b)
+    end
+    gossipPurchaseHookInstalled = true
+end
 
 local function ResolveBagButton(a, b)
     -- Turtle/WotLK: (self, button). Vanilla 1.12: this=button, first arg=click type.
     if type(a) == "table" then
         return a, b
     end
-    return this, a
+    return this, a or arg1
 end
 
 local function TryDepositBagButton(button)
@@ -1059,6 +1379,7 @@ InstallBagHook = function()
         end
         bagClickHookInstalled = true
     end
+    InstallGossipPurchaseHook()
 end
 
 Initialize = function()
@@ -1094,19 +1415,30 @@ eventFrame:RegisterEvent("PLAYER_LOGOUT")
 eventFrame:RegisterEvent("PLAYER_LOGIN")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 
-eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2, arg3, arg4)
-    if event == "ADDON_LOADED" then
-        if arg1 == AddonName then
+eventFrame:SetScript("OnEvent", function(self, eventName, eventArg1, eventArg2, eventArg3, eventArg4)
+    -- Vanilla 1.12 exposes event arguments through globals (`event`, `arg1`,
+    -- ...), while newer Turtle clients pass (self, event, ...). Normalize
+    -- both forms here so server OPEN messages are not silently ignored.
+    if type(eventName) ~= "string" then
+        eventName = event
+        eventArg1 = arg1
+        eventArg2 = arg2
+        eventArg3 = arg3
+        eventArg4 = arg4
+    end
+
+    if eventName == "ADDON_LOADED" then
+        if eventArg1 == AddonName then
             Initialize()
         end
-    elseif event == "CHAT_MSG_ADDON" then
-        OnAddonMessage(arg1, arg2, arg3, arg4)
-    elseif event == "BAG_UPDATE" then
+    elseif eventName == "CHAT_MSG_ADDON" then
+        OnAddonMessage(eventArg1, eventArg2, eventArg3, eventArg4)
+    elseif eventName == "BAG_UPDATE" then
         if mainFrame and mainFrame:IsShown() and not pendingRequest then
             BuildDisplayModel()
             RefreshUI()
         end
-    elseif event == "PLAYER_LEAVING_WORLD" or event == "PLAYER_LOGOUT" then
+    elseif eventName == "PLAYER_LEAVING_WORLD" or eventName == "PLAYER_LOGOUT" then
         ClearAllSnapshots()
         sessionOpen = false
         recentOpen = false
@@ -1114,7 +1446,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2, arg3, arg4)
             mainFrame:Hide()
         end
         ClearPendingRequest()
-    elseif event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then
+    elseif eventName == "PLAYER_LOGIN" or eventName == "PLAYER_ENTERING_WORLD" then
         -- FrameXML load order differs between normal addons and MPQ overlays.
         -- Retry until the stock container handlers exist; InstallBagHook itself
         -- is idempotent and never wraps a handler twice.
@@ -1125,7 +1457,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, arg2, arg3, arg4)
     end
 end)
 
-bgTexturePath = FALLBACK_BG
+ResolveBgTexture()
 CreateMainFrame()
 Initialize()
 

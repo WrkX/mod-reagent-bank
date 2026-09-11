@@ -29,6 +29,7 @@ namespace ReagentBank
     enum class Command
     {
         Unknown = 0,
+        Purchase,
         Query,
         Deposit,
         DepositAll,
